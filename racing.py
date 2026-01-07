@@ -1,10 +1,10 @@
+import argparse
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
 import torchvision.transforms as transforms
 import torchvision
 from scipy.stats import friedmanchisquare, wilcoxon, rankdata, t
-from scikit_posthocs import posthoc_conover_friedman, posthoc_nemenyi
 import time
 import pandas as pd
 import sys
@@ -19,25 +19,21 @@ from attacks.TA.TA import ta_attack
 from attacks.ares.attacking import main as einseins_attack
 from attacks.TtBA.main import main as ttba_attack
 from loader import loader
-
-# Device and seed
 device = "cuda" if torch.cuda.is_available() else "cpu"
-split = "test"
-samples = int(10)
-save_attack_results = False # i.e. images etc. of the single attacks; racing results will always be saved
 
-
-
-def frace(dataset_name: str, model_arc: str, resource: str, budget: int, targeted: bool, seeds: int = 1):
+def frace(dataset_name: str = "cifar100", model_arc: str = "resnet34_cifar100", resource: str = "q", budget: int = 1000, targeted: str = "False", seeds: int = 1):
+    samples = int(10) # number of samples for racing
+    save_attack_results = False # i.e. images etc. of the single attacks; racing results will always be saved
+    
     for seed in range(seeds):
         np.random.seed(42+seed)
 
         if resource == "t":
-            time_budget = budget
-            query_budget = 10e6
+            time_budget = budget  # seconds
+            query_budget = 10e9   # effectively no query limit
         elif resource == "q":
-            query_budget = budget
-            time_budget = None
+            query_budget = budget # queries
+            time_budget = None    # effectively no time limit
         else:
             raise ValueError("Resource must be 't' or 'q'")
 
@@ -46,7 +42,7 @@ def frace(dataset_name: str, model_arc: str, resource: str, budget: int, targete
         os.makedirs("results/", exist_ok=True)
 
         # Load model and data
-        net, dataset, dim = loader(model=model_arc, split=split)
+        net, dataset, dim = loader(model=model_arc)
         dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
 
         # Candidate attacks
@@ -74,7 +70,7 @@ def frace(dataset_name: str, model_arc: str, resource: str, budget: int, targete
             "TtBA": run_ttba
         }
 
-        if targeted == False: # Add untargeted attacks
+        if targeted == "False": # Add untargeted attacks
             attacks.update({
                 # "EinsEins": run_eins, #was excluded in paper
                 "DACES": run_daces,
@@ -91,7 +87,7 @@ def frace(dataset_name: str, model_arc: str, resource: str, budget: int, targete
             results[f"{name}_rank"] = 0
             
         # Load indices
-        indice_path = f'data/correct_indices/{dataset_name}/{model_arc}_{split}.npy'
+        indice_path = f'data/correct_indices/{dataset_name}/{model_arc}_test.npy'
         indices = np.load(indice_path)
         sampled_indices = np.random.choice(a=indices, size=samples*2, replace=False)
 
@@ -107,7 +103,7 @@ def frace(dataset_name: str, model_arc: str, resource: str, budget: int, targete
 
             image, label = dataloader.dataset[i][0], dataloader.dataset[i][1]
 
-            if targeted == True:
+            if targeted == "True":
                 if dataset_name == 'ImageNet':
                     mean = [0.485, 0.456, 0.406]
                     std = [0.229, 0.224, 0.225] 
@@ -236,4 +232,22 @@ def frace(dataset_name: str, model_arc: str, resource: str, budget: int, targete
 
 
 if __name__ == "__main__":
-    frace(dataset_name="cifar100", model_arc="resnet34_cifar100", resource="q", budget=1000, targeted=False, seeds=1)
+    parser = argparse.ArgumentParser(description="Run the racing.")
+    
+    parser.add_argument("--dataset_name", default="cifar100")
+    parser.add_argument("--model_arc", default="resnet34_cifar100")
+    parser.add_argument("--resource", default="q") # 'q' for query, 't' for time
+    parser.add_argument("--budget", type=int, default=1000) 
+    parser.add_argument("--targeted", default="False") # 'True' or 'False'
+    parser.add_argument("--no_seeds", type=int, default=1) 
+
+    args = parser.parse_args()
+
+    frace(
+        dataset_name=args.dataset_name,
+        model_arc=args.model_arc,
+        resource=args.resource,
+        budget=args.budget,
+        targeted=args.targeted,
+        seeds=args.no_seeds
+    )
