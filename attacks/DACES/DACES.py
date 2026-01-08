@@ -19,8 +19,6 @@ print(device)
 def daces_attack(net,
            image: torch.Tensor = None,
            label: int = None,
-           target_image: torch.Tensor = None,
-           target_label: int = None,
            query_budget: int = 10000, 
            time_budget: int = None, 
            seed_inc: int = 0, 
